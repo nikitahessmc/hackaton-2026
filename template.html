@@ -25,20 +25,14 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
           </button>
         </div>
-        <div class="dy-pulse__suggestions" role="group" aria-label="Suggestions">
-          <button type="button" class="dy-pulse__suggestion">${Suggestion #1}</button>
-          <button type="button" class="dy-pulse__suggestion">${Suggestion #2}</button>
-          <button type="button" class="dy-pulse__suggestion">${Suggestion #3}</button>
-          <button type="button" class="dy-pulse__suggestion">${Suggestion #4}</button>
-        </div>
-        <div class="dy-pulse__search-meta" data-dy-visible="0">
-          <p class="dy-pulse__status" aria-live="polite"></p>
-          <button type="button" class="dy-pulse__reset" data-dy-visible="0" aria-label="Back to recommendations" title="Back to recommendations">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-            <span>Clear</span>
-          </button>
-        </div>
       </form>
+      <div class="dy-pulse__search-meta" data-dy-visible="0">
+        <p class="dy-pulse__status" aria-live="polite"></p>
+        <button type="button" class="dy-pulse__reset" data-dy-visible="0" aria-label="Back to recommendations" title="Back to recommendations">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          <span>Clear</span>
+        </button>
+      </div>
       <div class="dy-pulse__sec dy-pulse__groups" role="group" aria-label="Filter by">
         <span class="dy-pulse__label">Filter by</span>
         <div class="dy-pulse__seg">
@@ -70,6 +64,10 @@
         <button type="button" class="dy-pulse__view">View product</button>
         <button type="button" class="dy-pulse__compare-toggle" aria-pressed="false">Compare</button>
       </div>
+      <button type="button" class="dy-pulse__similar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+        <span>Show similar</span>
+      </button>
     </div>
 
     <div class="dy-pulse__tray" role="region" aria-label="Compare list" data-dy-visible="0">

@@ -2,8 +2,11 @@ const CONTAINER = document.getElementById('dy-pulse-${dyVariationId}');
 const CURRENCY_CODE = '${Currency}'.trim().toUpperCase();
 const PRODUCT_SHAPE = '${Product Shape}'.trim().toLowerCase();
 const MUSE_API_KEY = '${Client-Side API Key}'.trim();
+const SIMILAR_STRATEGY_ID = Number('${Similar Strategy ID}'.trim()) || 0;
 const CONFIG = {
   strategyId: 475206,
+  similarStrategyId: SIMILAR_STRATEGY_ID,
+  showSimilar: true,
   groupBy: 'category',
   showGroupControls: true,
   showPriceControl: true,
@@ -38,6 +41,7 @@ const SELECTORS = {
   pinPrice: '.dy-pulse__pin-price',
   pinProof: '.dy-pulse__pin-proof',
   viewButton: '.dy-pulse__view',
+  similar: '.dy-pulse__similar',
   compareToggle: '.dy-pulse__compare-toggle',
   tray: '.dy-pulse__tray',
   trayItems: '.dy-pulse__tray-items',
@@ -50,16 +54,14 @@ const SELECTORS = {
   search: '.dy-pulse__search',
   searchInput: '.dy-pulse__input',
   searchSubmit: '.dy-pulse__submit',
-  suggestions: '.dy-pulse__suggestions',
   searchStatus: '.dy-pulse__status',
   searchMeta: '.dy-pulse__search-meta',
-  resetSearch: '.dy-pulse__reset',
+  resetResults: '.dy-pulse__reset',
 };
 const LIST_SELECTORS = {
   zoomButtons: '.dy-pulse__zoom',
   groupButtons: '[data-dy-group]',
   chipButtons: '.dy-pulse__chips button',
-  suggestionButtons: '.dy-pulse__suggestion',
   compareColumns: '.dy-pulse__compare-col',
   compareMarkers: '.dy-pulse__compare-vs',
   items: '.dy-pulse__item',
@@ -89,6 +91,7 @@ const MUSE_ENDPOINT = 'https://direct.dy-api.com/v2/serve/user/agent';
 const ENGAGEMENT_ENDPOINT = 'https://direct-collect.dy-api.com/v2/collect/user/engagement';
 const MAX_QUERY_LENGTH = 250;
 const MAX_SEARCH_PRODUCTS = 36;
+const MAX_SIMILAR_PRODUCTS = 24;
 const SEARCH_SPIN_SPEED = 6;
 const MAX_COMPARE = 3;
 const COMPARE_CLOSE_DELAY = 380;
@@ -141,8 +144,8 @@ const STATE = {
   spin: null,
   isBusy: false,
   isSearching: false,
-  searchQuery: '',
-  searchRequestId: 0,
+  resultsLabel: '',
+  requestId: 0,
   baseItems: [],
   baseTracking: new Map(),
   isVisible: true,
@@ -553,13 +556,17 @@ const createTrackedLink = (item, sku, strategyId) => {
   return link;
 };
 
+const getSlotItem = (slot) => slot.item ?? slot.productData ?? {};
+
+const getSlotSku = (slot) => String(getSlotItem(slot).sku ?? slot.sku);
+
 const productsFromWidget = ({ wId, fId, slots = [] }, decisionId = null) => {
   const box = document.createElement('div');
   if (wId != null) box.setAttribute('data-dy-widget-id', wId);
   if (fId != null) box.setAttribute('data-dy-feed-id', fId);
   const products = slots.map((slot) => {
-    const item = slot.item ?? slot.productData ?? {};
-    const sku = String(item.sku ?? slot.sku);
+    const item = getSlotItem(slot);
+    const sku = getSlotSku(slot);
     const link = createTrackedLink(item, sku, slot.strId);
     box.appendChild(link);
     return registerProduct({
@@ -781,7 +788,7 @@ const getActiveGroup = () => {
 
 const measureControls = () => {
   const { side, topControls } = ELEMENTS;
-  const hasSide = CONFIG.showGroupControls || CONFIG.showPriceControl || CONFIG.showSearch;
+  const hasSide = CONFIG.showGroupControls || CONFIG.showPriceControl || CONFIG.showSearch || canShowSimilar();
   setVisible(side, hasSide);
   STATE.padTop = topControls.offsetTop + topControls.offsetHeight + 8;
   STATE.padLeft = 0;
@@ -1002,6 +1009,7 @@ const setBusy = (isBusy) => {
   STATE.isBusy = isBusy;
   ELEMENTS.shuffle.disabled = isBusy;
   ELEMENTS.searchSubmit.disabled = isBusy;
+  ELEMENTS.similar.disabled = isBusy;
   CONTAINER.setAttribute('aria-busy', String(isBusy));
 };
 
@@ -1020,14 +1028,17 @@ const reshuffle = async () => {
 
 const canShuffle = () => CONFIG.showShuffle && Boolean(CONFIG.strategyId);
 
+const canShowSimilar = () => CONFIG.showSimilar && Boolean(CONFIG.similarStrategyId);
+
 const setSearching = (isSearching) => {
   STATE.isSearching = isSearching;
   ELEMENTS.search.setAttribute('data-dy-searching', isSearching ? '1' : '0');
+  ELEMENTS.searchInput.readOnly = isSearching;
   setBusy(isSearching);
 };
 
 const updateSearchMeta = () => {
-  setVisible(ELEMENTS.searchMeta, Boolean(ELEMENTS.searchStatus.textContent || STATE.searchQuery));
+  setVisible(ELEMENTS.searchMeta, Boolean(ELEMENTS.searchStatus.textContent || STATE.resultsLabel));
 };
 
 const setSearchStatus = (text) => {
@@ -1035,10 +1046,10 @@ const setSearchStatus = (text) => {
   updateSearchMeta();
 };
 
-const setSearchActive = (query) => {
-  STATE.searchQuery = query;
-  setVisible(ELEMENTS.resetSearch, Boolean(query));
-  setVisible(ELEMENTS.shuffle, !query && canShuffle());
+const setResultsMode = (label) => {
+  STATE.resultsLabel = label;
+  setVisible(ELEMENTS.resetResults, Boolean(label));
+  setVisible(ELEMENTS.shuffle, !label && canShuffle());
   updateSearchMeta();
 };
 
@@ -1052,6 +1063,22 @@ const restoreBaseItems = () => {
   spinCamera(() => setItems(STATE.baseItems));
 };
 
+const applyResults = (label, status, products) => {
+  STATE.filter = null;
+  setResultsMode(label);
+  setSearchStatus(status);
+  spinCamera(() => setItems(products));
+};
+
+const startResultsRequest = (status) => {
+  STATE.requestId += 1;
+  if (!STATE.resultsLabel) saveBaseItems();
+  deselect();
+  setSearching(true);
+  setSearchStatus(status);
+  return STATE.requestId;
+};
+
 const showSearchResults = (text, products) => {
   if (!products) {
     setSearchStatus('Search is unavailable right now. Please try again.');
@@ -1061,35 +1088,50 @@ const showSearchResults = (text, products) => {
     setSearchStatus('No matches for “' + text + '”. Try different words.');
     return;
   }
-  STATE.filter = null;
-  setSearchActive(text);
-  setSearchStatus(products.length + (products.length === 1 ? ' result' : ' results') + ' for “' + text + '”');
-  spinCamera(() => setItems(products));
+  applyResults(text, products.length + (products.length === 1 ? ' result' : ' results') + ' for “' + text + '”', products);
 };
 
 const searchProducts = async (query) => {
   const text = query.trim().slice(0, MAX_QUERY_LENGTH);
   if (!text || STATE.isBusy) return;
-  STATE.searchRequestId += 1;
-  const requestId = STATE.searchRequestId;
-  if (!STATE.searchQuery) saveBaseItems();
-  deselect();
-  setSearching(true);
-  setSearchStatus('Finding products for “' + text + '”…');
+  const requestId = startResultsRequest('Finding products for “' + text + '”…');
   const results = await fetchMuseResults(text).catch(() => null);
-  if (requestId !== STATE.searchRequestId) return;
+  if (requestId !== STATE.requestId) return;
   setSearching(false);
   showSearchResults(text, results && productsFromMuse(results));
 };
 
-const resetSearch = () => {
-  STATE.searchRequestId += 1;
+const fetchSimilar = (product) => fetchRecommendations(CONFIG.similarStrategyId, {
+  maxProducts: MAX_SIMILAR_PRODUCTS,
+  context: { ...(window.DY?.recommendationContext ?? {}), type: 'PRODUCT', data: [product.sku] },
+}).then(({ slots, ...widget }) => productsFromWidget({
+  ...widget,
+  slots: slots.filter((slot) => getSlotSku(slot) !== product.sku),
+})).catch(() => []);
+
+const showSimilar = async () => {
+  const anchor = STATE.selected;
+  if (!anchor || STATE.isBusy || STATE.spin) return;
+  const requestId = startResultsRequest('Finding products similar to “' + anchor.name + '”…');
+  const similar = await fetchSimilar(anchor);
+  if (requestId !== STATE.requestId) return;
+  setSearching(false);
+  if (!similar.length) {
+    setSearchStatus('No similar products found for “' + anchor.name + '”.');
+    return;
+  }
+  ELEMENTS.searchInput.value = '';
+  applyResults(anchor.name, 'Similar to “' + anchor.name + '”', [anchor, ...similar]);
+};
+
+const resetResults = () => {
+  STATE.requestId += 1;
   setSearching(false);
   deselect();
   ELEMENTS.searchInput.value = '';
   setSearchStatus('');
-  if (!STATE.searchQuery) return;
-  setSearchActive('');
+  if (!STATE.resultsLabel) return;
+  setResultsMode('');
   STATE.filter = null;
   restoreBaseItems();
 };
@@ -1787,6 +1829,9 @@ const bindControls = () => {
   ELEMENTS.viewButton.addEventListener('click', () => {
     if (STATE.selected) openProduct(STATE.selected);
   });
+  setVisible(ELEMENTS.similar, canShowSimilar());
+  ELEMENTS.similar.addEventListener('click', showSimilar);
+  ELEMENTS.resetResults.addEventListener('click', resetResults);
   setVisible(ELEMENTS.groups, CONFIG.showGroupControls);
   queryAll(LIST_SELECTORS.groupButtons).forEach((button) => {
     button.addEventListener('click', () => setGroup(button.dataset.dyGroup));
@@ -1810,28 +1855,13 @@ const bindCompare = () => {
   });
 };
 
-const bindSuggestions = () => {
-  const buttons = queryAll(LIST_SELECTORS.suggestionButtons);
-  buttons.forEach((button) => {
-    const text = button.textContent.trim();
-    setVisible(button, Boolean(text));
-    button.addEventListener('click', () => {
-      ELEMENTS.searchInput.value = text;
-      searchProducts(text);
-    });
-  });
-  setVisible(ELEMENTS.suggestions, buttons.some((button) => button.textContent.trim()));
-};
-
 const bindSearch = () => {
   setVisible(ELEMENTS.search, CONFIG.showSearch);
   if (!CONFIG.showSearch) return;
-  bindSuggestions();
   ELEMENTS.search.addEventListener('submit', (event) => {
     event.preventDefault();
     searchProducts(ELEMENTS.searchInput.value);
   });
-  ELEMENTS.resetSearch.addEventListener('click', resetSearch);
 };
 
 const resizeCanvas = () => {
