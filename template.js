@@ -12,6 +12,7 @@ const CONFIG = {
   showPriceControl: true,
   showPrices: true,
   autoRotate: true,
+  rotationDurationMs: Number("${Rotation speed (in ms)}"),
   showShuffle: true,
   showSearch: Boolean(MUSE_API_KEY),
   showSocialProof: true,
@@ -1416,7 +1417,7 @@ const stepAutoRotate = (dt) => {
   const isEnabled = CONFIG.autoRotate || STATE.isSearching;
   if (!isEnabled || REDUCED_MOTION || STATE.selected || drag || pinch || STATE.inertia) return;
   const speed = STATE.isSearching ? SEARCH_SPIN_SPEED : 1;
-  STATE.camera.yaw += dt * 0.00012 * speed * (Math.cos(STATE.camera.pitch) < 0 ? -1 : 1);
+  STATE.camera.yaw += (TAU * dt / CONFIG.rotationDurationMs) * speed * (Math.cos(STATE.camera.pitch) < 0 ? -1 : 1);
 };
 
 const getRates = (dt) => {
