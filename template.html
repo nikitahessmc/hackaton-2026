@@ -1,0 +1,102 @@
+<section id="dy-pulse-${dyVariationId}" class="dy-pulse">
+
+  <h2 class="dy-pulse__title">Trending in our store</h2>
+
+  <div class="dy-pulse__stage">
+    <canvas class="dy-pulse__canvas" aria-hidden="true"></canvas>
+
+    <div class="dy-pulse__tr">
+      <button type="button" class="dy-pulse__shuffle">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+        <span>Reshuffle</span>
+      </button>
+      <button type="button" class="dy-pulse__zoom" data-zoom="in" aria-label="Zoom in">+</button>
+      <button type="button" class="dy-pulse__zoom" data-zoom="out" aria-label="Zoom out">&#8722;</button>
+    </div>
+
+    <div class="dy-pulse__hint"></div>
+
+    <div class="dy-pulse__side">
+      <form class="dy-pulse__sec dy-pulse__search" role="search" data-dy-searching="0" novalidate>
+        <div class="dy-pulse__field">
+          <input type="search" class="dy-pulse__input" maxlength="250" autocomplete="off" enterkeyhint="search"
+            placeholder="${Search Placeholder}" aria-label="${Search Placeholder}">
+          <button type="submit" class="dy-pulse__submit" aria-label="Search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          </button>
+        </div>
+        <div class="dy-pulse__suggestions" role="group" aria-label="Suggestions">
+          <button type="button" class="dy-pulse__suggestion">${Suggestion #1}</button>
+          <button type="button" class="dy-pulse__suggestion">${Suggestion #2}</button>
+          <button type="button" class="dy-pulse__suggestion">${Suggestion #3}</button>
+          <button type="button" class="dy-pulse__suggestion">${Suggestion #4}</button>
+        </div>
+        <div class="dy-pulse__search-meta" data-dy-visible="0">
+          <p class="dy-pulse__status" aria-live="polite"></p>
+          <button type="button" class="dy-pulse__reset" data-dy-visible="0" aria-label="Back to recommendations" title="Back to recommendations">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            <span>Clear</span>
+          </button>
+        </div>
+      </form>
+      <div class="dy-pulse__sec dy-pulse__groups" role="group" aria-label="Filter by">
+        <span class="dy-pulse__label">Filter by</span>
+        <div class="dy-pulse__seg">
+          <button type="button" data-dy-group="category">Category</button>
+          <button type="button" data-dy-group="price">Price</button>
+          <button type="button" data-dy-group="color">Color</button>
+        </div>
+      </div>
+      <div class="dy-pulse__sec dy-pulse__chips-sec">
+        <span class="dy-pulse__label">Show</span>
+        <div class="dy-pulse__chips" role="group" aria-label="Show"></div>
+      </div>
+      <div class="dy-pulse__sec dy-pulse__range">
+        <div class="dy-pulse__range-head"><span class="dy-pulse__label">Price</span><output class="dy-pulse__val"></output></div>
+        <div class="dy-pulse__track">
+          <div class="dy-pulse__fill"></div>
+          <input type="range" class="dy-pulse__min" min="0" max="1000" value="0" aria-label="Price minimum">
+          <input type="range" class="dy-pulse__max" min="0" max="1000" value="1000" aria-label="Price maximum">
+        </div>
+      </div>
+    </div>
+
+    <div class="dy-pulse__pin" data-dy-visible="0">
+      <button type="button" class="dy-pulse__pin-x" aria-label="Close">&#215;</button>
+      <b class="dy-pulse__pin-name"></b>
+      <span class="dy-pulse__pin-price"></span>
+      <span class="dy-pulse__pin-proof"></span>
+      <div class="dy-pulse__pin-actions">
+        <button type="button" class="dy-pulse__view">View product</button>
+        <button type="button" class="dy-pulse__compare-toggle" aria-pressed="false">Compare</button>
+      </div>
+    </div>
+
+    <div class="dy-pulse__tray" role="region" aria-label="Compare list" data-dy-visible="0">
+      <div class="dy-pulse__tray-items"></div>
+      <button type="button" class="dy-pulse__tray-open">Compare</button>
+    </div>
+
+    <div class="dy-pulse__compare" role="dialog" aria-label="Compare products" data-dy-visible="0" data-dy-animate="0">
+      <div class="dy-pulse__compare-head">
+        <div>
+          <b class="dy-pulse__compare-title">Side by side</b>
+          <span class="dy-pulse__compare-sub"></span>
+        </div>
+        <button type="button" class="dy-pulse__compare-close" aria-label="Close compare">&#215;</button>
+      </div>
+      <div class="dy-pulse__compare-grid"></div>
+    </div>
+
+    <div class="dy-pulse__items">
+      ${#Recommendation}
+      <a class="dy-pulse__item" href="${Link}" data-sku="${SKU}" data-price="${Price}" data-cat="${Categories}">
+        <img src="${Image}" alt="" loading="lazy">
+        <span class="dy-pulse__name">${Name}</span>
+        <span class="dy-pulse__price">${Price}</span>
+      </a>
+      ${/Recommendation}
+    </div>
+  </div>
+
+</section>
