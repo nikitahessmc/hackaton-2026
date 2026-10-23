@@ -1,8 +1,8 @@
 <section id="dy-pulse-${dyVariationId}" class="dy-pulse">
 
-  <h2 class="dy-pulse__title">Trending in our store</h2>
-
   <div class="dy-pulse__stage">
+    <h2 class="dy-pulse__title"><span class="dy-pulse__title-text">Trending in our store</span></h2>
+
     <canvas class="dy-pulse__canvas" aria-hidden="true"></canvas>
 
     <div class="dy-pulse__tr">
@@ -17,21 +17,24 @@
     <div class="dy-pulse__hint"></div>
 
     <div class="dy-pulse__side">
-      <form class="dy-pulse__sec dy-pulse__search" role="search" data-dy-searching="0" novalidate>
-        <div class="dy-pulse__field">
-          <input type="search" class="dy-pulse__input" maxlength="250" autocomplete="off" enterkeyhint="search"
-            placeholder="${Search Placeholder}" aria-label="${Search Placeholder}">
-          <button type="submit" class="dy-pulse__submit" aria-label="Search">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <div class="dy-pulse__find">
+        <form class="dy-pulse__sec dy-pulse__search" role="search" data-dy-searching="0" novalidate>
+          <span class="dy-pulse__label">Search</span>
+          <div class="dy-pulse__field">
+            <input type="search" class="dy-pulse__input" maxlength="250" autocomplete="off" enterkeyhint="search"
+              placeholder="${Search Placeholder}" aria-label="${Search Placeholder}">
+            <button type="submit" class="dy-pulse__submit" aria-label="Search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            </button>
+          </div>
+        </form>
+        <div class="dy-pulse__search-meta" data-dy-visible="0">
+          <p class="dy-pulse__status" aria-live="polite"></p>
+          <button type="button" class="dy-pulse__reset" data-dy-visible="0" aria-label="Back to recommendations" title="Back to recommendations">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            <span>Clear</span>
           </button>
         </div>
-      </form>
-      <div class="dy-pulse__search-meta" data-dy-visible="0">
-        <p class="dy-pulse__status" aria-live="polite"></p>
-        <button type="button" class="dy-pulse__reset" data-dy-visible="0" aria-label="Back to recommendations" title="Back to recommendations">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-          <span>Clear</span>
-        </button>
       </div>
       <div class="dy-pulse__sec dy-pulse__groups" role="group" aria-label="Filter by">
         <span class="dy-pulse__label">Filter by</span>

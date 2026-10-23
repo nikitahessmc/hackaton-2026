@@ -3,8 +3,31 @@ const CURRENCY_CODE = '${Currency}'.trim().toUpperCase();
 const PRODUCT_SHAPE = '${Product Shape}'.trim().toLowerCase();
 const MUSE_API_KEY = '${Client-Side API Key}'.trim();
 const SIMILAR_STRATEGY_ID = Number('${Similar Strategy ID}'.trim()) || 0;
+const SIDEBAR_POSITION = '${Sidebar Position}'.trim().toLowerCase();
+const CONTROLS_POSITION = '${Controls Position}'.trim().toLowerCase();
+const TITLE_POSITION = '${Title Position}'.trim().toLowerCase();
+const ITEM_SIZE = '${Item Size}'.trim().toLowerCase();
+const ITEM_SPACING = '${Item Spacing}'.trim().toLowerCase();
+const LAYOUT_SHAPE = '${Layout Shape}'.trim().toLowerCase();
+const DEFAULT_ZOOM = '${Default Zoom}'.trim().toLowerCase();
+const ZOOM_LEVELS = {
+  far: 1.25, normal: 1, close: 0.8, 'very close': 0.65,
+};
+const ITEM_SIZES = {
+  small: 0.75, medium: 1, large: 1.3, 'extra large': 1.6,
+};
+const ITEM_SPACINGS = {
+  compact: 0.8, normal: 1, relaxed: 1.3, wide: 1.6,
+};
+const SIDE_EDGES = ['left', 'right', 'top', 'bottom'];
+const CORNERS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
+const LAYOUT_SHAPES = ['sphere', 'ring'];
 const CONFIG = {
   strategyId: 475206,
+  sidebarPosition: SIDE_EDGES.includes(SIDEBAR_POSITION) ? SIDEBAR_POSITION : 'left',
+  controlsPosition: CORNERS.includes(CONTROLS_POSITION) ? CONTROLS_POSITION : 'top-right',
+  titlePosition: CORNERS.includes(TITLE_POSITION) ? TITLE_POSITION : 'top-left',
+  layoutShape: LAYOUT_SHAPES.includes(LAYOUT_SHAPE) ? LAYOUT_SHAPE : 'sphere',
   similarStrategyId: SIMILAR_STRATEGY_ID,
   showSimilar: true,
   groupBy: 'category',
@@ -12,7 +35,10 @@ const CONFIG = {
   showPriceControl: true,
   showPrices: true,
   autoRotate: true,
-  rotationDurationMs: Number("${Rotation speed (in ms)}"),
+  rotationDurationMs: Number('${Rotation speed (ms)}'),
+  itemScale: ITEM_SIZES[ITEM_SIZE] ?? ITEM_SIZES.medium,
+  itemSpacing: ITEM_SPACINGS[ITEM_SPACING] ?? ITEM_SPACINGS.normal,
+  zoom: ZOOM_LEVELS[DEFAULT_ZOOM] ?? ZOOM_LEVELS.normal,
   showShuffle: true,
   showSearch: Boolean(MUSE_API_KEY),
   showSocialProof: true,
@@ -24,6 +50,7 @@ const CONFIG = {
 const SELECTORS = {
   stage: '.dy-pulse__stage',
   canvas: '.dy-pulse__canvas',
+  title: '.dy-pulse__title',
   topControls: '.dy-pulse__tr',
   shuffle: '.dy-pulse__shuffle',
   hint: '.dy-pulse__hint',
@@ -103,6 +130,29 @@ const PURCHASE_WEIGHT = 4;
 const SOCIAL_PROOF_LABELS = { daily: 'today', weekly: 'this week', monthly: 'this month' };
 const LOCALE = document.documentElement.lang || window.navigator.language || 'en';
 const REDUCED_MOTION = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+const LAYOUTS = {
+  sphere: {
+    pitch: HOME_PITCH,
+    pitchRange: null,
+    radius: (count) => 70 + Math.sqrt(count) * 32,
+    distance: (radius) => radius * 2.4 + 200,
+    point: (index, count, radius) => {
+      if (count === 2) return [index ? -radius : radius, 0, 0];
+      return DY_HELPER.fibonacciPoint(index, count, count === 1 ? 0 : radius);
+    },
+  },
+  ring: {
+    pitch: 0.36,
+    pitchRange: [0.08, 0.9],
+    radius: (count) => Math.max(150, (count * 92) / TAU),
+    distance: (radius) => radius * 2 + 180,
+    point: (index, count, radius) => {
+      const angle = (index / count) * TAU;
+      return [Math.cos(angle) * radius, 0, Math.sin(angle) * radius];
+    },
+  },
+};
+const LAYOUT = LAYOUTS[CONFIG.layoutShape];
 const ELEMENTS = {};
 const PRODUCTS = new Map();
 const POINTERS = new Map();
@@ -110,13 +160,16 @@ const STATE = {
   width: 0,
   height: 0,
   dpr: 1,
-  padTop: 56,
-  padBottom: 12,
-  padLeft: 0,
+  pad: {
+    top: 56, right: 0, bottom: 12, left: 0,
+  },
+  inset: {
+    top: 0, right: 0, bottom: 0, left: 0,
+  },
+  sideEdge: null,
   font: '',
   accent: '',
   background: '',
-  heatRgb: '',
   items: [],
   view: [],
   groups: [],
@@ -138,8 +191,9 @@ const STATE = {
   priceHigh: 2,
   priceBands: [],
   bubbleScale: 1,
+  targetBubbleScale: 1,
   homeDistance: 800,
-  camera: { yaw: 0.5, pitch: HOME_PITCH, distance: 800 },
+  camera: { yaw: 0.5, pitch: LAYOUT.pitch, distance: 800 },
   cameraAnimation: null,
   inertia: null,
   spin: null,
@@ -371,8 +425,6 @@ class Product {
     this.purchases = 0;
     this.views = 0;
     this.isInterestRequested = false;
-    this.heat = 0;
-    this.targetHeat = 0;
     this.compareMix = 0;
     this.compareSlot = 0;
     this.hero = null;
@@ -381,8 +433,10 @@ class Product {
     this.rank = -1;
     this.scale = 0;
     this.targetScale = 0;
+    this.fade = 1;
     this.highlight = 0;
     this.priceAlpha = 0;
+    this.priceSlot = 0;
     this.rangeAlpha = 1;
     this.position = null;
     this.target = [0, 0, 0];
@@ -416,10 +470,6 @@ class Product {
 
   get interestScore() {
     return this.purchases * PURCHASE_WEIGHT + this.views;
-  }
-
-  setHeat(value) {
-    this.targetHeat = value;
   }
 
   setCompareSlot(index) {
@@ -461,13 +511,15 @@ class Product {
     this.targetScale = 0;
   }
 
-  placeOnSphere(index, count, radius, isFirstLayout) {
+  placeAt(index, count, target, isFirstLayout) {
     this.rank = index;
     this.targetScale = clamp(1 - 0.55 * (index / Math.max(1, count - 1)) ** 0.85, 0.35, 1);
-    this.target = DY_HELPER.fibonacciPoint(index, count, count === 1 ? 0 : radius);
+    this.target = target;
     if (this.position && this.scale > 0.01) return;
-    const spread = isFirstLayout ? 1 : 0.6;
-    this.position = this.target.map((value) => value * spread);
+    this.position = [...this.target];
+    if (isFirstLayout) return;
+    this.scale = this.targetScale;
+    this.fade = -Math.min(0.6, index * 0.02);
   }
 
   showInstantly() {
@@ -480,13 +532,18 @@ class Product {
     if (Math.abs(this.targetScale - this.scale) < 0.002) this.scale = this.targetScale;
     this.rangeAlpha += ((isInRange ? 1 : 0) - this.rangeAlpha) * rates.fade;
     this.highlight += ((isSelected ? 1 : 0) - this.highlight) * rates.highlight;
-    this.heat += (this.targetHeat - this.heat) * rates.heat;
+    this.fade = Math.min(1, this.fade + rates.appear);
     this.compareMix = clamp(this.compareMix + (isHero ? rates.compare : -rates.compare), 0, 1);
     if (!this.compareMix) this.hero = null;
   }
 
   fadePriceLabel(isShown, rate) {
     this.priceAlpha += ((isShown ? 1 : 0) - this.priceAlpha) * rate;
+    if (!isShown && this.priceAlpha < 0.02) this.priceSlot = 0;
+  }
+
+  setPriceSlot(slot) {
+    this.priceSlot = slot;
   }
 
   releaseIfHidden() {
@@ -770,16 +827,8 @@ const pickTrending = () => {
   return trending.length >= MIN_TRENDING && trending.length < STATE.items.length ? trending : [];
 };
 
-const refreshHeat = () => {
-  const maxScore = Math.max(0, ...STATE.items.map(({ interestScore }) => interestScore));
-  const scale = Math.log1p(maxScore);
-  PRODUCTS.forEach((product) => product.setHeat(0));
-  if (!CONFIG.showSocialProof || !scale) {
-    STATE.trending = [];
-    return;
-  }
-  STATE.items.forEach((product) => product.setHeat(Math.log1p(product.interestScore) / scale));
-  STATE.trending = pickTrending();
+const refreshTrending = () => {
+  STATE.trending = CONFIG.showSocialProof ? pickTrending() : [];
 };
 
 const getActiveGroup = () => {
@@ -787,16 +836,63 @@ const getActiveGroup = () => {
   return STATE.groups.find(({ key }) => key === STATE.filter) ?? null;
 };
 
+const getSideEdge = () => {
+  const { side } = ELEMENTS;
+  if (side.offsetWidth > STATE.width / 2) return side.offsetTop + side.offsetHeight / 2 < STATE.height / 2 ? 'top' : 'bottom';
+  return side.offsetLeft + side.offsetWidth / 2 < STATE.width / 2 ? 'left' : 'right';
+};
+
+const getSideInset = (edge) => {
+  const { side } = ELEMENTS;
+  const inset = {
+    top: 0, right: 0, bottom: 0, left: 0,
+  };
+  if (edge === 'top') inset.top = side.offsetTop + side.offsetHeight + 8;
+  if (edge === 'bottom') inset.bottom = STATE.height - side.offsetTop + 8;
+  if (edge === 'left') inset.left = side.offsetLeft + side.offsetWidth + 8;
+  if (edge === 'right') inset.right = STATE.width - side.offsetLeft + 8;
+  return inset;
+};
+
+const placeControls = (edge) => {
+  const { stage, side } = ELEMENTS;
+  const [vertical, horizontal] = CONFIG.controlsPosition.split('-');
+  stage.style.setProperty('--dy-shift-y', (edge === vertical ? side.offsetHeight + 8 : 0) + 'px');
+  stage.style.setProperty('--dy-shift-x', (edge === horizontal ? side.offsetWidth + 8 : 0) + 'px');
+  const isFree = (corner) => !corner.split('-').includes(edge) && corner !== CONFIG.controlsPosition;
+  const freeCorner = CORNERS.find((corner) => isFree(corner) && corner !== CONFIG.titlePosition) ?? CORNERS.find(isFree);
+  stage.setAttribute('data-dy-corner', freeCorner);
+};
+
+const placeTitle = () => {
+  const { stage, title, topControls } = ELEMENTS;
+  const { inset, width, height } = STATE;
+  const [vertical, horizontal] = CONFIG.titlePosition.split('-');
+  const isWithControls = CONFIG.titlePosition === CONFIG.controlsPosition;
+  const sharesRow = !isWithControls && CONFIG.controlsPosition.startsWith(vertical);
+  const freeWidth = width - inset.left - inset.right - 32 - (sharesRow ? topControls.offsetWidth + 16 : 0);
+  const controlsEdge = vertical === 'top' ? topControls.offsetTop + topControls.offsetHeight : height - topControls.offsetTop;
+  const offset = isWithControls ? controlsEdge + 10 : (vertical === 'top' ? inset.top : inset.bottom) + 14;
+  title.style.setProperty('--dy-title-x', (horizontal === 'left' ? inset.left : inset.right) + 16 + 'px');
+  title.style.setProperty('--dy-title-y', offset + 'px');
+  title.style.setProperty('--dy-title-w', clamp(freeWidth, 140, 420) + 'px');
+  const cornerShift = stage.getAttribute('data-dy-corner') === CONFIG.titlePosition ? offset + title.offsetHeight : 0;
+  stage.style.setProperty('--dy-corner-shift', cornerShift + 'px');
+};
+
 const measureControls = () => {
   const { side, topControls } = ELEMENTS;
   const hasSide = CONFIG.showGroupControls || CONFIG.showPriceControl || CONFIG.showSearch || canShowSimilar();
   setVisible(side, hasSide);
-  STATE.padTop = topControls.offsetTop + topControls.offsetHeight + 8;
-  STATE.padLeft = 0;
-  STATE.padBottom = 12;
-  if (!hasSide) return;
-  if (STATE.width <= NARROW_WIDTH) STATE.padBottom = STATE.height - side.offsetTop + 8;
-  else STATE.padLeft = side.offsetWidth + 20;
+  const edge = hasSide ? getSideEdge() : null;
+  placeControls(edge);
+  STATE.sideEdge = edge;
+  STATE.inset = getSideInset(edge);
+  const pad = { ...STATE.inset, top: Math.max(STATE.inset.top, 12), bottom: Math.max(STATE.inset.bottom, 12) };
+  if (CONFIG.controlsPosition.startsWith('top')) pad.top = Math.max(pad.top, topControls.offsetTop + topControls.offsetHeight + 8);
+  else pad.bottom = Math.max(pad.bottom, STATE.height - topControls.offsetTop + 8);
+  STATE.pad = pad;
+  placeTitle();
 };
 
 const syncChips = () => {
@@ -937,14 +1033,16 @@ const openProduct = (product) => {
 
 const arrangeSphere = (isFirstLayout) => {
   const count = STATE.view.length;
-  const radius = 70 + Math.sqrt(count) * 32;
-  STATE.bubbleScale = clamp(Math.sqrt(36 / Math.max(1, count)) * 0.7, 1, 2);
+  const radius = LAYOUT.radius(count) * CONFIG.itemSpacing;
+  STATE.targetBubbleScale = clamp(Math.sqrt(36 / Math.max(1, count)) * 0.7, 1, 2);
   PRODUCTS.forEach((product) => product.hide());
-  STATE.view.forEach((product, index) => product.placeOnSphere(index, count, radius, isFirstLayout));
-  STATE.homeDistance = clamp(radius * 2.4 + 200, 520, ZOOM_LIMITS.max);
+  STATE.view.forEach((product, index) => product.placeAt(index, count, LAYOUT.point(index, count, radius), isFirstLayout));
+  const fitDistance = clamp(LAYOUT.distance(radius), 520, ZOOM_LIMITS.max);
+  STATE.homeDistance = clamp(fitDistance * CONFIG.zoom, ZOOM_LIMITS.min, ZOOM_LIMITS.max);
   if (isFirstLayout) {
+    STATE.bubbleScale = STATE.targetBubbleScale;
     STATE.camera.distance = STATE.homeDistance;
-    STATE.camera.pitch = HOME_PITCH;
+    STATE.camera.pitch = LAYOUT.pitch;
     PRODUCTS.forEach((product) => product.showInstantly());
     return;
   }
@@ -955,7 +1053,7 @@ const layout = (isFirstLayout) => {
   STATE.categoryLevel = pickCategoryLevel();
   STATE.priceBands = computePriceBands();
   STATE.groups = buildGroups();
-  refreshHeat();
+  refreshTrending();
   const isFullRange = STATE.priceMin <= STATE.priceLow && STATE.priceMax >= STATE.priceHigh;
   const activeGroup = getActiveGroup();
   if (!activeGroup) STATE.filter = null;
@@ -1044,6 +1142,7 @@ const updateSearchMeta = () => {
 
 const setSearchStatus = (text) => {
   ELEMENTS.searchStatus.textContent = text;
+  ELEMENTS.searchStatus.title = text;
   updateSearchMeta();
 };
 
@@ -1334,7 +1433,7 @@ const loadSocialProof = async (products) => {
   const skus = pending.map(({ sku }) => sku);
   const [purchases, views] = await Promise.all([fetchInterest(skus, 'purchase'), fetchInterest(skus, 'view')]);
   pending.forEach((product) => product.setInterest(readInterest(purchases, product.sku, 'purchase'), readInterest(views, product.sku, 'view')));
-  refreshHeat();
+  refreshTrending();
   renderChips();
   renderPinProof();
   if (STATE.isCompareOpen) renderCompareStage();
@@ -1362,22 +1461,30 @@ const placePin = (item) => {
   const pinWidth = pin.offsetWidth;
   const pinHeight = pin.offsetHeight;
   const offset = item.r * 1.45 + 12;
-  const minX = STATE.padLeft + 8;
+  const { inset } = STATE;
+  const minX = inset.left + 8;
+  const maxX = STATE.width - inset.right - pinWidth - 8;
+  const minY = inset.top + 8;
+  const maxY = STATE.height - inset.bottom - pinHeight - 8;
   let x = item.x - pinWidth / 2;
   let y = item.y - pinHeight / 2;
-  if (item.x + offset + pinWidth <= STATE.width - 8) {
+  if (item.x + offset <= maxX) {
     x = item.x + offset;
   } else if (item.x - offset - pinWidth >= minX) {
     x = item.x - offset - pinWidth;
   } else {
     y = item.y + offset;
-    if (y + pinHeight > STATE.height - 8) y = item.y - offset - pinHeight;
+    if (y > maxY) y = item.y - offset - pinHeight;
   }
-  x = clamp(x, minX, Math.max(minX, STATE.width - pinWidth - 8));
-  y = clamp(y, 8, STATE.height - STATE.padBottom - pinHeight - 8);
+  x = clamp(x, minX, Math.max(minX, maxX));
+  y = clamp(y, minY, Math.max(minY, maxY));
   pin.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)';
   pin.setAttribute('data-dy-placed', '1');
 };
+
+const turnPitch = (pitch, delta) => (LAYOUT.pitchRange
+  ? clamp(pitch + delta, ...LAYOUT.pitchRange)
+  : DY_HELPER.wrapAngle(pitch + delta));
 
 const stepCameraAnimation = (time) => {
   const animation = STATE.cameraAnimation;
@@ -1407,7 +1514,7 @@ const stepInertia = (dt) => {
   const frames = dt / 16;
   const damping = 0.92 ** frames;
   camera.yaw += inertia.yaw * frames;
-  camera.pitch = DY_HELPER.wrapAngle(camera.pitch + inertia.pitch * frames);
+  camera.pitch = turnPitch(camera.pitch, inertia.pitch * frames);
   inertia.yaw *= damping;
   inertia.pitch *= damping;
   if (Math.abs(inertia.yaw) + Math.abs(inertia.pitch) < 0.0004) STATE.inertia = null;
@@ -1417,36 +1524,37 @@ const stepAutoRotate = (dt) => {
   const isEnabled = CONFIG.autoRotate || STATE.isSearching;
   if (!isEnabled || REDUCED_MOTION || STATE.selected || drag || pinch || STATE.inertia) return;
   const speed = STATE.isSearching ? SEARCH_SPIN_SPEED : 1;
-  STATE.camera.yaw += (TAU * dt / CONFIG.rotationDurationMs) * speed * (Math.cos(STATE.camera.pitch) < 0 ? -1 : 1);
+  const turn = ((TAU * dt) / CONFIG.rotationDurationMs) * speed;
+  STATE.camera.yaw += turn * (Math.cos(STATE.camera.pitch) < 0 ? -1 : 1);
 };
 
 const getRates = (dt) => {
   if (REDUCED_MOTION) {
     return {
-      move: 1, fade: 1, highlight: 1, heat: 1, compare: 1,
+      move: 1, fade: 1, highlight: 1, compare: 1, appear: 1,
     };
   }
   return {
     move: 1 - 0.0015 ** (dt / 1000),
     fade: Math.min(1, dt / 160),
     highlight: Math.min(1, dt / 140),
-    heat: Math.min(1, dt / 700),
     compare: Math.min(1, dt / 600),
+    appear: dt / 650,
   };
 };
 
 const getViewport = () => {
   const {
-    width, height, padTop, padBottom, padLeft,
+    width, height, pad, sideEdge,
   } = STATE;
-  const isNarrow = width <= NARROW_WIDTH;
-  const usableHeight = isNarrow
-    ? Math.max(140, height - padTop - padBottom)
-    : Math.max(140, height - 2 * Math.max(padTop, padBottom));
-  const usableWidth = Math.max(160, width - 2 * padLeft);
+  const isStacked = sideEdge === 'top' || sideEdge === 'bottom';
+  const usableHeight = isStacked
+    ? Math.max(140, height - pad.top - pad.bottom)
+    : Math.max(140, height - 2 * Math.max(pad.top, pad.bottom));
+  const usableWidth = Math.max(160, width - 2 * Math.max(pad.left, pad.right));
   return {
     centerX: width / 2,
-    centerY: isNarrow ? (padTop + height - padBottom) / 2 : height / 2,
+    centerY: isStacked ? (pad.top + height - pad.bottom) / 2 : height / 2,
     size: Math.min(usableWidth, usableHeight * 1.15) * 1.1,
   };
 };
@@ -1472,14 +1580,16 @@ const projectProduct = (product, viewport) => {
   if (!point) return null;
   const fog = clamp((point.depth - STATE.camera.distance) / 320, 0, 1);
   const appear = Math.min(1, product.scale / 0.18);
+  const fadeIn = DY_HELPER.easeInOut(clamp(product.fade, 0, 1));
   const focus = STATE.selected && product !== STATE.selected ? 0.55 : 1;
-  const alpha = appear * (1 - 0.55 * fog) * (0.16 + 0.84 * product.rangeAlpha) * focus;
-  const grow = 1 + 0.22 * product.heat;
+  const alpha = appear * fadeIn * (1 - 0.55 * fog) * (0.16 + 0.84 * product.rangeAlpha) * focus;
+  const grow = 0.85 + 0.15 * fadeIn;
+  const size = STATE.bubbleScale * CONFIG.itemScale * grow;
   return {
     product,
     x: point.x,
     y: point.y,
-    r: (20 * appear + 18 * product.scale) * point.scale * (0.45 + 0.55 * product.rangeAlpha) * (1 + 0.45 * product.highlight) * STATE.bubbleScale * grow,
+    r: (20 * appear + 18 * product.scale) * point.scale * (0.45 + 0.55 * product.rangeAlpha) * (1 + 0.45 * product.highlight) * size,
     depth: point.depth,
     alpha: alpha + (1 - alpha) * product.highlight,
     isDimmed: product.rangeAlpha < 0.5,
@@ -1526,14 +1636,36 @@ const projectProducts = (rate) => {
   return [...projected, ...heroes];
 };
 
-const canShowPriceLabel = ({
-  product, depth, r, isDimmed, isHero,
-}) => !isDimmed
-  && !isHero
-  && depth <= STATE.camera.distance + 10
-  && r >= 10
-  && product !== STATE.selected
-  && Number.isFinite(product.price);
+const PRICE_LABEL_OFFSETS = [(r) => r + 12, (r) => -r - 12, (r) => r * 0.55];
+
+const measurePriceLabel = (product) => {
+  context.font = '700 12px ' + STATE.font;
+  return context.measureText(formatPrice(product.price)).width + 22;
+};
+
+const getPriceLabelBox = ({ x, y, r }, slot, width) => {
+  const labelX = clamp(x, STATE.inset.left + width / 2 + 4, STATE.width - STATE.inset.right - width / 2 - 4);
+  const labelY = clamp(y + PRICE_LABEL_OFFSETS[slot](r), STATE.inset.top + 16, STATE.height - STATE.inset.bottom - 16);
+  if (Math.abs(labelX - x) > r || Math.abs(labelY - y) > r + 14) return null;
+  return {
+    x: labelX - width / 2, y: labelY - 12, width, height: 24, centerX: labelX, centerY: labelY,
+  };
+};
+
+const findPriceLabelSlot = (item, boxes) => {
+  const width = measurePriceLabel(item.product);
+  const slots = [item.product.priceSlot, ...PRICE_LABEL_OFFSETS.keys()];
+  return slots
+    .map((slot) => ({ slot, box: getPriceLabelBox(item, slot, width) }))
+    .find(({ box }) => box && !boxes.some((other) => DY_HELPER.overlaps(box, other)));
+};
+
+const canShowPriceLabel = (item) => !item.isDimmed
+  && !item.isHero
+  && item.depth <= STATE.camera.distance + 10
+  && item.r >= 10
+  && item.product !== STATE.selected
+  && Number.isFinite(item.product.price);
 
 const choosePriceLabels = (projected) => {
   const shown = new Set();
@@ -1541,11 +1673,10 @@ const choosePriceLabels = (projected) => {
   const boxes = [];
   [...projected].sort((a, b) => a.depth - b.depth).forEach((item) => {
     if (shown.size >= MAX_PRICE_LABELS || !canShowPriceLabel(item)) return;
-    const box = {
-      x: item.x - 30, y: item.y + item.r, width: 60, height: 24,
-    };
-    if (boxes.some((other) => DY_HELPER.overlaps(box, other))) return;
-    boxes.push(box);
+    const match = findPriceLabelSlot(item, boxes);
+    if (!match) return;
+    boxes.push(match.box);
+    item.product.setPriceSlot(match.slot);
     shown.add(item.product);
   });
   return shown;
@@ -1564,22 +1695,6 @@ const drawPriceLabel = (text, x, y) => {
   context.fillStyle = '#15181A';
   context.textAlign = 'left';
   context.fillText(text, x - width / 2 + 11, y + 4.5);
-};
-
-const drawHeatGlow = ({
-  product, x, y, r, alpha,
-}, time) => {
-  if (product.heat < 0.05) return;
-  const beat = REDUCED_MOTION ? 0.5 : (Math.sin(time / 380 + product.phase) + 1) / 2;
-  const radius = r * (1.3 + 0.3 * product.heat + 0.12 * beat);
-  const glow = context.createRadialGradient(x, y, r * 0.7, x, y, radius);
-  glow.addColorStop(0, 'rgba(' + STATE.heatRgb + ',.55)');
-  glow.addColorStop(1, 'rgba(' + STATE.heatRgb + ',0)');
-  context.globalAlpha = alpha * product.heat * (0.6 + 0.4 * beat);
-  context.fillStyle = glow;
-  context.beginPath();
-  context.arc(x, y, radius, 0, TAU);
-  context.fill();
 };
 
 const drawCompareBadge = (x, y, number, alpha) => {
@@ -1620,20 +1735,24 @@ const drawBackdrop = () => {
   context.fillRect(0, 0, STATE.width, STATE.height);
 };
 
-const drawProduct = (item, time) => {
+const drawProduct = (item) => {
   const {
     product, x, y, r, alpha, isHero,
   } = item;
-  drawHeatGlow(item, time);
   if (isHero) drawHeroHalo(item);
   context.globalAlpha = alpha;
   context.drawImage(product.bubble, x - 1.25 * r, y - 1.1875 * r, 2.5 * r, 2.5 * r);
   const compareIndex = STATE.compare.indexOf(product);
   if (compareIndex >= 0 && !isHero) drawCompareBadge(x + r * 0.72, y - r * 0.72, compareIndex + 1, alpha);
-  const labelAlpha = product.priceAlpha * alpha;
+};
+
+const drawProductPrice = (item) => {
+  const labelAlpha = item.product.priceAlpha * item.alpha;
   if (labelAlpha <= 0.02) return;
+  const box = getPriceLabelBox(item, item.product.priceSlot, measurePriceLabel(item.product));
+  if (!box) return;
   context.globalAlpha = labelAlpha;
-  drawPriceLabel(formatPrice(product.price), x, y + r + 12);
+  drawPriceLabel(formatPrice(item.product.price), box.centerX, box.centerY);
 };
 
 const strokeShape = (x, y, half) => {
@@ -1660,9 +1779,11 @@ const drawScene = (time, rates) => {
   STATE.projected = projectProducts(rates.move);
   const priceLabels = choosePriceLabels(STATE.projected);
   STATE.projected.forEach(({ product }) => product.fadePriceLabel(priceLabels.has(product), rates.fade));
-  STATE.projected.filter(({ isHero }) => !isHero).forEach((item) => drawProduct(item, time));
+  const products = STATE.projected.filter(({ isHero }) => !isHero);
+  products.forEach((item) => drawProduct(item));
+  products.forEach(drawProductPrice);
   drawBackdrop();
-  STATE.projected.filter(({ isHero }) => isHero).forEach((item) => drawProduct(item, time));
+  STATE.projected.filter(({ isHero }) => isHero).forEach((item) => drawProduct(item));
   context.globalAlpha = 1;
   const selected = STATE.projected.find(({ product }) => product === STATE.selected);
   if (selected) drawSelectionRing(selected, time);
@@ -1683,6 +1804,7 @@ const renderFrame = (time) => {
   stepInertia(dt);
   stepAutoRotate(dt);
   const rates = getRates(dt);
+  STATE.bubbleScale += (STATE.targetBubbleScale - STATE.bubbleScale) * rates.move;
   STATE.backdrop = clamp(STATE.backdrop + (STATE.isCompareOpen ? rates.compare : -rates.compare), 0, 1);
   PRODUCTS.forEach((product) => {
     product.step(rates, isInPriceRange(product), product === STATE.selected, STATE.isCompareOpen && isCompared(product));
@@ -1738,7 +1860,7 @@ const dragCamera = (event) => {
   const yawDelta = dx * 0.006 * (Math.cos(camera.pitch) < 0 ? -1 : 1);
   const pitchDelta = dy * 0.004;
   camera.yaw += yawDelta;
-  camera.pitch = DY_HELPER.wrapAngle(camera.pitch + pitchDelta);
+  camera.pitch = turnPitch(camera.pitch, pitchDelta);
   STATE.cameraAnimation = null;
   STATE.inertia = {
     yaw: clamp(yawDelta, -0.08, 0.08),
@@ -1878,8 +2000,12 @@ const resizeCanvas = () => {
 };
 
 const observeStage = () => {
-  if (window.ResizeObserver) new window.ResizeObserver(resizeCanvas).observe(ELEMENTS.stage);
-  else window.addEventListener('resize', resizeCanvas);
+  if (window.ResizeObserver) {
+    new window.ResizeObserver(resizeCanvas).observe(ELEMENTS.stage);
+    new window.ResizeObserver(() => measureControls()).observe(ELEMENTS.side);
+  } else {
+    window.addEventListener('resize', resizeCanvas);
+  }
   if (!window.IntersectionObserver) return;
   new window.IntersectionObserver(([entry]) => {
     STATE.isVisible = entry.isIntersecting;
@@ -1892,7 +2018,6 @@ const readTheme = () => {
   STATE.font = styles.fontFamily || 'system-ui, sans-serif';
   STATE.accent = styles.getPropertyValue('--pulse-accent').trim() || '#15181A';
   STATE.background = styles.getPropertyValue('--pulse-bg').trim() || '#F1EEE8';
-  STATE.heatRgb = styles.getPropertyValue('--pulse-heat-rgb').trim() || '232, 96, 44';
 };
 
 const init = () => {
@@ -1905,6 +2030,9 @@ const init = () => {
     return;
   }
   readTheme();
+  CONTAINER.setAttribute('data-dy-side', CONFIG.sidebarPosition);
+  CONTAINER.setAttribute('data-dy-controls', CONFIG.controlsPosition);
+  CONTAINER.setAttribute('data-dy-title', CONFIG.titlePosition);
   bindPointerEvents();
   bindControls();
   bindCompare();
